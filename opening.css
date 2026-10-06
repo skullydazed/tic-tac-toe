@@ -1,0 +1,73 @@
+@page {
+  size: letter;
+  margin: 36pt 36pt 70pt 72pt;
+  @bottom-left {
+    content: "X = opponent     O = You     Red O = What to Play";
+    font: 8pt sans-serif;
+    color: #566474;
+  }
+  @bottom-right {
+    content: "Opening sheet - keep at the front";
+    font: 8pt sans-serif;
+    color: #566474;
+  }
+}
+.markdown-page {
+  margin: 0;
+  font: 10pt/15pt sans-serif;
+  color: #202b38;
+}
+
+.markdown-page h1 {
+  margin: 0 0 5pt;
+  font-size: 23pt;
+  line-height: 28pt;
+}
+
+.markdown-page h2 {
+  margin: 0 0 16pt;
+  font-size: 14pt;
+  line-height: 18pt;
+  font-weight: normal;
+  color: #174e79;
+}
+
+.markdown-page h3 {
+  margin: 12pt 0 5pt;
+  font-size: 10pt;
+  line-height: 15pt;
+  color: #174e79;
+}
+
+.markdown-page p { margin: 0 0 15pt; }
+.markdown-page ol, .markdown-page ul { padding-left: 18pt; margin: 0 0 10pt; }
+.markdown-page li { margin-bottom: 5pt; }
+.markdown-page li p { margin-bottom: 5pt; }
+.markdown-page pre { white-space: pre-wrap; }
+.markdown-page img { max-width: 100%; }
+
+.game-board {
+  border-collapse: collapse;
+  margin: 10pt auto;
+}
+
+.game-board th, .game-board td {
+  border: 0.8pt solid #202b38;
+  text-align: center;
+}
+
+.game-board th:empty { border: 0; padding: 0; }
+
+.game-board td {
+  width: 60pt;
+  height: 60pt;
+  box-sizing: border-box;
+  padding: 0;
+  vertical-align: middle;
+}
+
+.game-address {
+  display: block;
+  font: bold 14pt/16.1pt "Courier New", monospace;
+  color: #174e79;
+}

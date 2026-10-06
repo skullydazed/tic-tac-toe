@@ -12,6 +12,7 @@ from collections import deque
 from dataclasses import dataclass
 from functools import lru_cache
 import json
+from io import BytesIO
 from pathlib import Path
 
 
@@ -26,6 +27,8 @@ WIN_LINES = (
     (0, 4, 8), (2, 4, 6),
 )
 
+OPENING_MARKDOWN = Path(__file__).with_name("opening.md")
+OPENING_CSS = Path(__file__).with_name("opening.css")
 
 def outcome(board: str) -> str | None:
     """Return X, O, DRAW, or None if play can continue."""
@@ -97,11 +100,9 @@ class Address:
     def __str__(self) -> str:
         return f"{self.divider_pack}-{self.tab}-{self.page}-{self.row}"
 
-
-def printed_address(address: str) -> str:
-    """Group the divider pack (tab row) and tab above the page and game row."""
-    pack, tab, page, row = address.split("-")
-    return f"{pack}-{tab}\n{page}-{row}"
+    @property
+    def lines(self) -> tuple[str, str]:
+        return f"{self.divider_pack}-{self.tab}", f"{self.page}-{self.row}"
 
 
 def generate_game() -> tuple[GameRow, ...]:
@@ -251,61 +252,57 @@ def validate_game(rows: tuple[GameRow, ...], addresses: dict[str, Address]) -> N
                 raise AssertionError("A reply address points to the wrong board.")
 
 
-def render_pdf(manifest: dict, output_path: Path) -> None:
+def render_pdf(
+    rows: tuple[GameRow, ...], addresses: dict[str, Address], output_path: Path,
+) -> None:
     """Render the opening sheet and six-row game pages for a three-ring binder."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.pdfgen import canvas
+    from cmarkgfm import github_flavored_markdown_to_html
+    from weasyprint import CSS, HTML
+    from pypdf import PdfReader, PdfWriter
 
     width, height = letter
     # Base layout has a one-inch left margin and a half-inch right margin.
     # Translate odd game pages left by half an inch to swap those margins.
     left, right = 72, width - 36
+    board_side = 90
+    row_height = 108
+    rows_top = 714
+    starting_board_x = 174
+    move_board_x = starting_board_x + 204
+    arrow_left = starting_board_x + board_side + 23
+    arrow_right = move_board_x - 23
+    arrow_center = (arrow_left + arrow_right) / 2
+    outcome_x = move_board_x + board_side + 15
     ink = colors.HexColor("#202b38")
     muted = colors.HexColor("#566474")
     red = colors.HexColor("#d5222a")
     blue = colors.HexColor("#174e79")
     rule = colors.HexColor("#cbd3db")
-    pdf = canvas.Canvas(str(output_path), pagesize=letter, invariant=1)
+    game_pdf = BytesIO()
+    pdf = canvas.Canvas(game_pdf, pagesize=letter, invariant=1)
     pdf.setTitle("Tic-tac-toe: the paper computer")
     pdf.setAuthor("Tic-tac-toe binder generator")
 
-    def text(x, y, value, size=10, font="Helvetica", color=ink):
+    def text(x, y, value, size=10, font="Helvetica", color=ink, align="left"):
         pdf.setFillColor(color)
         pdf.setFont(font, size)
-        pdf.drawString(x, y, value)
+        draw = {"left": pdf.drawString, "center": pdf.drawCentredString,
+                "right": pdf.drawRightString}[align]
+        draw(x, y, value)
 
-    def centered(x, y, value, size=10, font="Helvetica", color=ink):
-        pdf.setFillColor(color)
-        pdf.setFont(font, size)
-        pdf.drawCentredString(x, y, value)
-
-    def wrapped(x, y, value, max_width, size=10, leading=15, color=ink):
-        words = value.split()
-        line = ""
-        for word in words:
-            candidate = f"{line} {word}".strip()
-            if line and stringWidth(candidate, "Helvetica", size) > max_width:
-                text(x, y, line, size, color=color)
-                y -= leading
-                line = word
-            else:
-                line = candidate
-        if line:
-            text(x, y, line, size, color=color)
-            y -= leading
-        return y
-
-    def board(x, top, side, position, labels=None, red_cell=None):
+    def board(x, top, position, labels=None, red_cell=None):
         labels = labels or {}
-        cell_size = side / 3
+        cell_size = board_side / 3
         pdf.setLineWidth(0.8)
         pdf.setStrokeColor(ink)
-        pdf.rect(x, top - side, side, side, stroke=1, fill=0)
+        pdf.rect(x, top - board_side, board_side, board_side, stroke=1, fill=0)
         for i in (1, 2):
-            pdf.line(x + i * cell_size, top, x + i * cell_size, top - side)
-            pdf.line(x, top - i * cell_size, x + side, top - i * cell_size)
+            pdf.line(x + i * cell_size, top, x + i * cell_size, top - board_side)
+            pdf.line(x, top - i * cell_size, x + board_side, top - i * cell_size)
         for cell, mark in enumerate(position):
             r, c = divmod(cell, 3)
             cx = x + (c + 0.5) * cell_size
@@ -322,9 +319,10 @@ def render_pdf(manifest: dict, output_path: Path) -> None:
                 pdf.circle(cx, cy, cell_size * 0.25, stroke=1, fill=0)
             elif cell in labels:
                 label = labels[cell]
-                font = "Helvetica-Bold" if label == "DRAW" else "Courier-Bold"
-                lines = [label] if label == "DRAW" else printed_address(label).splitlines()
-                max_size = (9 if side > 100 else 7) if label == "DRAW" else (14 if side > 100 else 11)
+                if isinstance(label, Address):
+                    lines, font, max_size = label.lines, "Courier-Bold", 11
+                else:
+                    lines, font, max_size = (label,), "Helvetica-Bold", 7
                 size = min(
                     max_size,
                     (cell_size - 4) / max(stringWidth(line, font, 1) for line in lines),
@@ -333,102 +331,92 @@ def render_pdf(manifest: dict, output_path: Path) -> None:
                 leading = size * 1.15
                 for line_number, line in enumerate(lines):
                     baseline = cy + ((len(lines) - 1) / 2 - line_number) * leading - size * 0.32
-                    centered(cx, baseline, line, size, font)
+                    text(cx, baseline, line, size, font, align="center")
 
-    def outside_text(y, value, size=10, font="Helvetica", color=ink, outside_left=False):
-        pdf.setFillColor(color)
-        pdf.setFont(font, size)
-        if outside_left:
-            pdf.drawString(left, y, value)
-        else:
-            pdf.drawRightString(right, y, value)
-
-    def footer(value, outside_left=False, right_content=False):
+    def footer(value, side=None):
         pdf.setStrokeColor(rule)
         pdf.setLineWidth(0.6)
         pdf.line(left, 55, right, 55)
         legend = "X = opponent     O = You     Red O = What to Play"
-        if right_content:
-            outside_text(40, legend, 8, color=muted)
-        else:
-            text(left, 40, legend, 8, color=muted)
-        outside_text(26, value, 8, color=muted, outside_left=outside_left)
+        legend_side = side or "left"
+        number_side = side or "right"
+        text(left if legend_side == "left" else right, 40, legend, 8,
+             color=muted, align=legend_side)
+        text(left if number_side == "left" else right, 26, value, 8,
+             color=muted, align=number_side)
 
-    materials = manifest["materials"]
-    pages_per_tab = manifest["settings"]["pages_per_tab"]
-    text(left, height - 49, "TIC-TAC-TOE", 23, "Helvetica-Bold")
-    text(left, height - 71, "Play like a computer!", 14, color=blue)
-    y = 687
-    y = wrapped(left, y, "Use this book to play Tic-Tac-Toe the way a computer would. Your opponent is X and goes first.", right - left, 11, 17)
-    y -= 10
-    for instruction in (
-        "1. Find the square on the opening board below for your opponent's X."
-        "2. Find your position on the left. On the right, the red O is the computer's move.",
-        "3. Choose an available square on the right for your next X. Imagine your X in that square, then follow its address. Check that the next starting board matches.",
-        "4. If your square says DRAW, the game is over. If the row says O WINS, you have three in a row and have won.",
-    ):
-        y = wrapped(left, y, instruction, right - left, 10, 15) - 5
-    y -= 7
-    text(left, y, "HOW TO READ AN ADDRESS", 10, "Helvetica-Bold", blue)
-    y = wrapped(left, y - 18, "Top line: divider pack (tab row) - tab. Bottom line: page - row. All numbers start at 1. For example, 2-3 above 1-4 means pack 2, tab 3, page 1, row 4. Tabs restart at 1 in each pack; pages restart at 1 for each tab.", right - left, 10, 15)
-    opening_top = y - 30
-    centered((left + right) / 2, opening_top + 12, "CHOOSE THE FIRST X", 11, "Helvetica-Bold", blue)
-    opening_side = 180
-    board((left + right - opening_side) / 2, opening_top, opening_side, EMPTY_BOARD,
-          {reply["cell"]: reply["address"] for reply in manifest["opening"]["replies"]})
-    footer("Opening sheet - keep at the front")
-    pdf.showPage()
+    opening_html = github_flavored_markdown_to_html(OPENING_MARKDOWN.read_text(encoding="utf-8"))
+    # The opening document's tables are boards; inline code contains addresses.
+    opening_html = opening_html.replace("<table>", '<table class="game-board">')
+    opening_html = opening_html.replace("<code>", '<code class="game-address">')
+    opening_html = '<body class="markdown-page">' + opening_html + '</body>'
+    opening_document = HTML(string=opening_html, base_url=str(OPENING_MARKDOWN.parent)).render(
+        stylesheets=[CSS(filename=str(OPENING_CSS))]
+    )
+    if len(opening_document.pages) != 1:
+        raise ValueError("Opening-page content exceeds one printed page.")
 
-    for offset in range(0, len(manifest["rows"]), ROWS_PER_PAGE):
+    game_pages = (len(rows) + ROWS_PER_PAGE - 1) // ROWS_PER_PAGE
+    for offset in range(0, len(rows), ROWS_PER_PAGE):
         game_page = offset // ROWS_PER_PAGE + 1
-        outside_left = game_page % 2 == 1
-        game_page_right = not outside_left
+        side = "left" if game_page % 2 else "right"
+        outside_x = left if side == "left" else right
         pdf.saveState()
-        if outside_left:
+        if side == "left":
             pdf.translate(-36, 0)
-        page_rows = manifest["rows"][offset:offset + ROWS_PER_PAGE]
-        pack, tab, page, _ = page_rows[0]["address"].split("-")
-        outside_text(749, f"PACK {pack}  /  TAB {tab}  /  PAGE {page}", 16,
-                     "Helvetica-Bold", outside_left=outside_left)
-        outside_text(728, "Find your row. Play the red O, then follow the address for the next X square.",
-                     9, color=muted, outside_left=outside_left)
+        page_rows = rows[offset:offset + ROWS_PER_PAGE]
+        page_address = addresses[page_rows[0].starting_board]
+        text(outside_x, 749,
+             f"PACK {page_address.divider_pack}  /  TAB {page_address.tab}  /  PAGE {page_address.page}",
+             16, "Helvetica-Bold", align=side)
+        text(outside_x, 728, "Find your row. Play the red O, wait for opponent to play X, then follow the address.",
+             9, color=muted, align=side)
         for row_index, row in enumerate(page_rows):
-            top = 714 - row_index * 108
-            outside_text(top - 22, f"ROW {row_index + 1}", 10, "Helvetica-Bold",
-                         blue, outside_left=outside_left)
-            address_lines = printed_address(row["address"]).splitlines()
+            top = rows_top - row_index * row_height
+            board_top = top - 14
+            board_center_y = board_top - board_side / 2
+            arrow_y = board_center_y - 2
+            text(outside_x, top - 22, f"ROW {row_index + 1}", 10, "Helvetica-Bold",
+                 blue, align=side)
+            address_lines = addresses[row.starting_board].lines
             address_size = min(12, 94 / max(stringWidth(line, "Courier-Bold", 1) for line in address_lines))
             for line_number, line in enumerate(address_lines):
-                outside_text(top - 40 - line_number * 14, line, address_size,
-                             "Courier-Bold", outside_left=outside_left)
-            centered(219, top - 9, "STARTING BOARD", 7, "Helvetica-Bold", muted)
-            centered(423, top - 9, "O'S MOVE + YOUR CHOICES", 7, "Helvetica-Bold", muted)
-            board(174, top - 14, 90, row["starting_board"])
-            labels = {reply["cell"]: reply.get("address", reply.get("result")) for reply in row["replies"]}
-            board(378, top - 14, 90, row["after_o"], labels, row["o_move"])
-            centered(321, top - 49, "O plays", 9, color=muted)
+                text(outside_x, top - 40 - line_number * 14, line, address_size,
+                     "Courier-Bold", align=side)
+            text(starting_board_x + board_side / 2, board_top + 5,
+                 "STARTING BOARD", 7, "Helvetica-Bold", muted, align="center")
+            text(move_board_x + board_side / 2, board_top + 5,
+                 "MOVE + NEXT ADDRESS", 7, "Helvetica-Bold", muted, align="center")
+            board(starting_board_x, board_top, row.starting_board)
+            labels = {
+                reply.cell: addresses[reply.destination] if reply.destination is not None else reply.result
+                for reply in row.replies
+            }
+            board(move_board_x, board_top, row.after_o, labels, row.o_move)
+            text(arrow_center, board_center_y + 10, "O plays", 9, color=muted, align="center")
             pdf.setStrokeColor(muted)
             pdf.setLineWidth(0.8)
-            pdf.line(287, top - 61, 355, top - 61)
-            pdf.line(355, top - 61, 350, top - 57)
-            pdf.line(355, top - 61, 350, top - 65)
-            if row["result"] == "O":
-                text(483, top - 47, "O WINS", 11, "Helvetica-Bold", blue)
-                text(483, top - 64, "Game over.", 9, color=muted)
-                text(483, top - 78, "Start again.", 9, color=muted)
-            elif any(reply.get("result") == "DRAW" for reply in row["replies"]):
-                text(483, top - 47, "DRAW", 10, "Helvetica-Bold", blue)
-                text(483, top - 64, "Choose that", 8, color=muted)
-                text(483, top - 77, "square to tie.", 8, color=muted)
+            pdf.line(arrow_left, arrow_y, arrow_right, arrow_y)
+            pdf.line(arrow_right, arrow_y, arrow_right - 5, arrow_y + 4)
+            pdf.line(arrow_right, arrow_y, arrow_right - 5, arrow_y - 4)
+            if row.result == "O":
+                text(outcome_x, board_center_y + 12, "O WINS", 11, "Helvetica-Bold", blue)
+            elif any(reply.result == "DRAW" for reply in row.replies):
+                text(outcome_x, board_center_y + 12, "DRAW", 10, "Helvetica-Bold", blue)
             if row_index < ROWS_PER_PAGE - 1:
                 pdf.setStrokeColor(rule)
                 pdf.setLineWidth(0.4)
-                pdf.line(left, top - 107, right, top - 107)
-        footer(f"Game page {game_page} of {materials['game_pages']}", outside_left,
-               right_content=game_page_right)
+                pdf.line(left, top - row_height + 1, right, top - row_height + 1)
+        footer(f"Game page {game_page} of {game_pages}", side)
         pdf.restoreState()
         pdf.showPage()
     pdf.save()
+    combined = PdfWriter()
+    combined.append(PdfReader(BytesIO(opening_document.write_pdf())))
+    combined.append(PdfReader(game_pdf))
+    combined.add_metadata({"/Title": "Tic-tac-toe: the paper computer",
+                           "/Author": "Tic-tac-toe binder generator"})
+    combined.write(output_path)
 
 
 def positive_integer(value: str) -> int:
@@ -453,8 +441,7 @@ def main(argv: list[str] | None = None) -> int:
     rows = generate_game()
     addresses = allocate_addresses(rows, args.pages_per_tab)
     validate_game(rows, addresses)
-    manifest = build_manifest(rows, addresses, args.pages_per_tab)
-    materials = manifest["materials"]
+    materials = material_counts(len(rows), args.pages_per_tab)
     print(f"Game rows: {materials['game_rows']}")
     print(f"Game pages: {materials['game_pages']} (6 row slots per page)")
     print(f"Total printed sheets: {materials['total_printed_pages']} (includes opening sheet)")
@@ -465,7 +452,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     try:
         args.output_dir.mkdir(parents=True, exist_ok=True)
-        render_pdf(manifest, args.output_dir / "binder.pdf")
+        render_pdf(rows, addresses, args.output_dir / "binder.pdf")
+        manifest = build_manifest(rows, addresses, args.pages_per_tab)
         (args.output_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8",
         )

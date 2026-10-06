@@ -125,6 +125,17 @@ or `"O"`. Changing pages per tab changes addresses, not moves or row order.
 
 ## Verify
 
+Edit the first page in `opening.md`, using GitHub Flavored Markdown.
+Use two trailing spaces before a newline for a line break, or a blank line
+for a new paragraph. Headings, lists, emphasis, tables, and task lists are supported.
+The opening board is an ordinary Markdown table you can edit directly.
+Its addresses are static; update them if you change the page packing.
+Page styling is in `opening.css`. The opening content must fit on one page.
+The rendered HTML uses reusable `.markdown-page`, `.game-board`, and
+`.game-address` classes. Opening-page tables receive the board class, and
+inline code receives the address class; the Markdown itself stays plain.
+The PDF line-break regression test uses Poppler's `pdftotext` when available.
+
 ```sh
 uv run python -m unittest discover -s tests -v
 ```

@@ -7,8 +7,12 @@ import io
 import json
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
+import xml.etree.ElementTree as ET
 
 import generate_binder as binder
 
@@ -212,6 +216,29 @@ class CommandTests(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("reportlab"), "ReportLab is not installed")
 class ArtifactTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("pdftotext"), "PDF text extraction requires Poppler's pdftotext")
+    def test_opening_pdf_preserves_line_and_paragraph_breaks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "opening.md"
+            source.write_text("Alpha  \nBeta\n\nGamma\n", encoding="utf-8")
+            with patch.object(binder, "OPENING_MARKDOWN", source), redirect_stdout(io.StringIO()):
+                binder.main(["--output-dir", str(directory)])
+            extraction = subprocess.run(
+                ["pdftotext", "-f", "1", "-l", "1", "-bbox",
+                 str(directory / "binder.pdf"), "-"],
+                check=True, capture_output=True, text=True,
+            )
+            root = ET.fromstring(extraction.stdout)
+            words = root.findall(".//{http://www.w3.org/1999/xhtml}word")
+            positions = {
+                word.text: float(word.attrib["yMin"])
+                for word in words if word.text in {"Alpha", "Beta", "Gamma"}
+            }
+            # Check printed spacing independently of the editable instructions.
+            self.assertAlmostEqual(positions["Beta"] - positions["Alpha"], 15)
+            self.assertAlmostEqual(positions["Gamma"] - positions["Beta"], 30)
+
     def test_pdf_and_manifest_generation_is_reproducible(self):
         with tempfile.TemporaryDirectory() as temporary:
             dirs = [Path(temporary) / name for name in ("first", "second")]
