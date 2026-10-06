@@ -60,6 +60,11 @@ def minimax(board: str, player: str) -> int:
 def choose_o_move(board: str) -> int:
     if outcome(board) is not None or board.count("X") != board.count("O") + 1:
         raise ValueError("Expected an unfinished board just before O's turn.")
+    # Minimax treats immediate and eventual wins equally. Finish a winning
+    # line now before applying positional preferences to optimal moves.
+    for cell in MOVE_ORDER:
+        if board[cell] == "." and outcome(play(board, cell, "O")) == "O":
+            return cell
     return max(
         (cell for cell in MOVE_ORDER if board[cell] == "."),
         key=lambda cell: minimax(play(board, cell, "O"), "X"),
@@ -179,6 +184,7 @@ def build_manifest(
             "rows_per_page": ROWS_PER_PAGE,
             "tabs_per_pack": TABS_PER_PACK,
             "o_tie_break_order": list(MOVE_ORDER),
+            "o_strategy": "Take an immediate win; otherwise maximize minimax score, breaking ties by o_tie_break_order.",
             "paper": "US Letter",
             "printing": "single-sided",
             "game_page_layout": "Odd game pages: left, holes on right. Even game pages: right, holes on left. Opening sheet excluded from parity.",
@@ -221,6 +227,11 @@ def validate_game(rows: tuple[GameRow, ...], addresses: dict[str, Address]) -> N
             raise AssertionError("Invalid starting board.")
         if after != play(before, row.o_move, "O") or row.result != outcome(after):
             raise AssertionError("Invalid O move or result.")
+        if row.result != "O" and any(
+            outcome(play(before, cell, "O")) == "O"
+            for cell in range(9) if before[cell] == "."
+        ):
+            raise AssertionError("O must take an available immediate win.")
         if minimax(after, "X") < 0:
             raise AssertionError("O must never choose a losing move.")
         expected_cells = {i for i, value in enumerate(after) if value == "."}

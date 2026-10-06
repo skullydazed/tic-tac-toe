@@ -106,12 +106,47 @@ class GameTests(unittest.TestCase):
             self.assertEqual(row.o_move, 0 if cell == 4 else 4)
         binder.validate_game(self.rows, self.addresses)
 
+    def test_reported_position_takes_the_immediate_win(self):
+        board = "XOX.O.X.."
+        self.assertEqual(binder.choose_o_move(board), 7)
+        row = next(row for row in self.rows if row.starting_board == board)
+        self.assertEqual(row.o_move, 7)
+        self.assertEqual(row.result, "O")
+        self.assertEqual(row.replies, ())
+
+    def test_immediate_wins_are_taken_on_every_legal_o_turn(self):
+        # Cover boards outside this binder too, so strategy changes cannot
+        # reintroduce the bug on a newly reachable position.
+        visited = set()
+        winning_positions = set()
+
+        def visit(board, player):
+            if board in visited or result_of(board) is not None:
+                return
+            visited.add(board)
+            if player == "O":
+                wins = {
+                    cell for cell, mark in enumerate(board)
+                    if mark == "." and result_of(board[:cell] + "O" + board[cell + 1:]) == "O"
+                }
+                if wins:
+                    winning_positions.add(board)
+                    with self.subTest(board=board):
+                        self.assertIn(binder.choose_o_move(board), wins)
+            for cell, mark in enumerate(board):
+                if mark == ".":
+                    visit(board[:cell] + player + board[cell + 1:],
+                          "O" if player == "X" else "X")
+
+        visit(".........", "X")
+        self.assertGreater(len(winning_positions), 100)
+
     def test_default_counts_and_terminal_rows(self):
         self.assertEqual(self.manifest["materials"], {
-            "game_rows": 285, "game_pages": 48, "opening_pages": 1,
-            "total_printed_pages": 49, "tabs": 24, "divider_packs": 3,
+            "game_rows": 267, "game_pages": 45, "opening_pages": 1,
+            "total_printed_pages": 46, "tabs": 23, "divider_packs": 3,
         })
-        self.assertEqual(sum(row.result == "O" for row in self.rows), 140)
+        self.assertEqual(sum(row.result == "O" for row in self.rows), 141)
         draw_boards = {
             row.after_o[:reply.cell] + "X" + row.after_o[reply.cell + 1:]
             for row in self.rows for reply in row.replies if reply.result == "DRAW"
@@ -124,14 +159,14 @@ class GameTests(unittest.TestCase):
             0: "1-1-1-1", 5: "1-1-1-6", 6: "1-1-2-1",
             11: "1-1-2-6", 12: "1-2-1-1", 95: "1-8-2-6",
             96: "2-1-1-1", 191: "2-8-2-6", 192: "3-1-1-1",
-            284: "3-8-2-3",
+            266: "3-7-1-3",
         }
         for index, address in expected.items():
             self.assertEqual(str(self.addresses[self.rows[index].starting_board]), address)
-        self.assertEqual(len(set(self.addresses.values())), 285)
+        self.assertEqual(len(set(self.addresses.values())), 267)
 
     def test_packing_changes_addresses_but_not_game(self):
-        for pages, tabs, packs in ((1, 48, 6), (2, 24, 3), (5, 10, 2), (100, 1, 1)):
+        for pages, tabs, packs in ((1, 45, 6), (2, 23, 3), (5, 9, 2), (100, 1, 1)):
             with self.subTest(pages_per_tab=pages):
                 addresses = binder.allocate_addresses(self.rows, pages)
                 manifest = binder.build_manifest(self.rows, addresses, pages)
@@ -185,14 +220,14 @@ class ArtifactTests(unittest.TestCase):
                     self.assertEqual(binder.main(["--output-dir", str(directory)]), 0)
             pdf = (dirs[0] / "binder.pdf").read_bytes()
             self.assertTrue(pdf.startswith(b"%PDF-"))
-            self.assertEqual(len(re.findall(rb"/Type\s*/Page\b", pdf)), 49)
-            self.assertEqual(len(re.findall(rb"/MediaBox\s*\[\s*0\s+0\s+612\s+792\s*\]", pdf)), 49)
+            self.assertEqual(len(re.findall(rb"/Type\s*/Page\b", pdf)), 46)
+            self.assertEqual(len(re.findall(rb"/MediaBox\s*\[\s*0\s+0\s+612\s+792\s*\]", pdf)), 46)
             self.assertEqual(pdf, (dirs[1] / "binder.pdf").read_bytes())
             self.assertEqual((dirs[0] / "manifest.json").read_bytes(),
                              (dirs[1] / "manifest.json").read_bytes())
             manifest = json.loads((dirs[0] / "manifest.json").read_text())
-            self.assertEqual(len(manifest["rows"]), 285)
-            self.assertEqual(manifest["rows"][-1]["address"], "3-8-2-3")
+            self.assertEqual(len(manifest["rows"]), 267)
+            self.assertEqual(manifest["rows"][-1]["address"], "3-7-1-3")
 
     def test_other_packing_layouts_render(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -201,7 +236,7 @@ class ArtifactTests(unittest.TestCase):
                     directory = Path(temporary) / str(pages)
                     binder.main(["--pages-per-tab", str(pages), "--output-dir", str(directory)])
                     pdf = (directory / "binder.pdf").read_bytes()
-                    self.assertEqual(len(re.findall(rb"/Type\s*/Page\b", pdf)), 49)
+                    self.assertEqual(len(re.findall(rb"/Type\s*/Page\b", pdf)), 46)
 
 
 if __name__ == "__main__":

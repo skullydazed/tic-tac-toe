@@ -45,11 +45,11 @@ With the default two pages per tab, the binder contains:
 
 | Item | Count |
 | --- | ---: |
-| Game rows | 285 |
-| Game pages | 48 |
+| Game rows | 267 |
+| Game pages | 45 |
 | Opening/instructions sheet | 1 |
-| Total sheets to print | 49 |
-| Tabs used | 24 |
+| Total sheets to print | 46 |
+| Tabs used | 23 |
 | Packs of eight dividers | 3 |
 
 Keep the opening sheet at the front, before the numbered tabs. Label each pack
@@ -57,7 +57,9 @@ Keep the opening sheet at the front, before the numbered tabs. Label each pack
 With the default two pages per tab, mount page 1 on the **back of its divider**
 and page 2 on the **front of the following divider**. Grabbing a tab and opening
 it reveals the two-page spread for that tab. Keep the sequence continuous across
-divider packs, and use a blank backing sheet for the final right-hand page.
+divider packs. The final tab has only page 1 on its back; its facing right-hand
+page is blank. For configurations ending with a right-hand game page, use a
+blank backing sheet if there is no following divider.
 Page numbers restart at 1 for every tab. Other `--pages-per-tab` values still
 alternate left and right layouts by continuous game-page number, but only the
 default two-page setting puts every tab's pages together in one spread.
@@ -81,9 +83,9 @@ addressing scheme. Both cell destinations and row labels use this format.
 
 | Pages per tab | Game pages | Tabs | Packs of eight |
 | --- | ---: | ---: | ---: |
-| 1 | 48 | 48 | 6 |
-| 2 (default) | 48 | 24 | 3 |
-| 5 | 48 | 10 | 2 |
+| 1 | 45 | 45 | 6 |
+| 2 (default) | 45 | 23 | 3 |
+| 5 | 45 | 9 | 2 |
 
 ## How to play
 
@@ -102,7 +104,8 @@ binder never loses: the child can force a draw, and mistakes can let O win.
 
 The script evaluates moves with minimax: it assumes each side will choose its
 best possible reply. O scores a win as +1, a draw as 0, and a loss as -1.
-Equally good O moves use a fixed order: center; top-left, top-right, bottom-left,
+O always takes an immediate win when one is available. Otherwise, equally good
+minimax moves use a fixed order: center; top-left, top-right, bottom-left,
 bottom-right corners; then top, left, right, bottom edges.
 
 The generator includes every legal X reply to those chosen O moves. It traverses
@@ -126,7 +129,8 @@ or `"O"`. Changing pages per tab changes addresses, not moves or row order.
 uv run python -m unittest discover -s tests -v
 ```
 
-Tests explore every reachable game, check perfect play and legal navigation,
+Tests explore every reachable game, check immediate wins across every legal
+O-turn position, and check perfect play and legal navigation,
 verify packing boundaries, and check reproducible PDF and manifest output.
 Game generation, address allocation, and PDF rendering are separate functions
 in `generate_binder.py`.
