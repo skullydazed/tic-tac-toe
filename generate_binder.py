@@ -301,12 +301,12 @@ def render_pdf(manifest: dict, output_path: Path) -> None:
             cy = top - (r + 0.5) * cell_size
             if mark == "X":
                 delta = cell_size * 0.23
-                pdf.setStrokeColor(colors.black)
+                pdf.setStrokeColor(blue)
                 pdf.setLineWidth(max(1.3, cell_size * 0.055))
                 pdf.line(cx - delta, cy - delta, cx + delta, cy + delta)
                 pdf.line(cx - delta, cy + delta, cx + delta, cy - delta)
             elif mark == "O":
-                pdf.setStrokeColor(red if cell == red_cell else colors.black)
+                pdf.setStrokeColor(red if cell == red_cell else blue)
                 pdf.setLineWidth(max(1.3, cell_size * 0.055))
                 pdf.circle(cx, cy, cell_size * 0.25, stroke=1, fill=0)
             elif cell in labels:
@@ -322,7 +322,7 @@ def render_pdf(manifest: dict, output_path: Path) -> None:
                 leading = size * 1.15
                 for line_number, line in enumerate(lines):
                     baseline = cy + ((len(lines) - 1) / 2 - line_number) * leading - size * 0.32
-                    centered(cx, baseline, line, size, font, blue)
+                    centered(cx, baseline, line, size, font)
 
     def outside_text(y, value, size=10, font="Helvetica", color=ink, outside_left=False):
         pdf.setFillColor(color)
@@ -365,19 +365,6 @@ def render_pdf(manifest: dict, output_path: Path) -> None:
     opening_side = 180
     board((left + right - opening_side) / 2, opening_top, opening_side, EMPTY_BOARD,
           {reply["cell"]: reply["address"] for reply in manifest["opening"]["replies"]})
-#    assembly_y = opening_top - opening_side - 28
-#    text(left, assembly_y, "BUILD YOUR BINDER", 10, "Helvetica-Bold", blue)
-#    assembly = (
-#        f"Print {materials['total_printed_pages']} sheets at actual size, single-sided: this opening sheet and "
-#        f"{materials['game_pages']} game pages. Use {materials['tabs']} tabs from {materials['divider_packs']} "
-#        f"packs of eight dividers, with up to {pages_per_tab} game pages per tab. "
-#        "Odd game pages go on the left, with holes on the right; even game pages go on the right, with holes on the left. "
-#        "For two pages per tab, mount page 1 on the back of its divider and page 2 on the front of the following divider. "
-#        "Use a backing sheet for the final right page. Keep this opening sheet at the front."
-#    )
-#    bottom = wrapped(left, assembly_y - 18, assembly, right - left, 9, 13)
-#    if bottom < 70:
-#        raise ValueError("Opening-page content exceeds the printable layout.")
     footer("Opening sheet - keep at the front")
     pdf.showPage()
 
@@ -392,7 +379,7 @@ def render_pdf(manifest: dict, output_path: Path) -> None:
         pack, tab, page, _ = page_rows[0]["address"].split("-")
         outside_text(749, f"PACK {pack}  /  TAB {tab}  /  PAGE {page}", 16,
                      "Helvetica-Bold", outside_left=outside_left)
-        outside_text(728, "Find your row. Read the red O, then choose your next X square.",
+        outside_text(728, "Find your row. Play the red O, then follow the address for the next X square.",
                      9, color=muted, outside_left=outside_left)
         for row_index, row in enumerate(page_rows):
             top = 714 - row_index * 108
